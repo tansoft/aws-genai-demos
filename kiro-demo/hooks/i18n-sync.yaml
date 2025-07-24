@@ -1,0 +1,27 @@
+# 名称：i18n-sync
+# 说明：保持各语言翻译文件的内容同步
+
+Trigger: File Save
+Target: "src/locales/ja/*.json"
+Instructions: |
+  当日语语言文件被更新时，执行以下操作：
+
+  1. 检测变更内容  
+     - 新增的 key  
+     - 被修改的 key  
+     - 被删除的 key  
+
+  2. 检查其他语言文件  
+     - src/locales/en/*.json（英文）  
+     - src/locales/zh/*.json（中文）  
+     - 其他支持语言  
+
+  3. 执行同步操作  
+     - 对新增的 key，添加内容为 "TODO: 需要翻译"  
+     - 对修改的 key，添加前缀 "REVIEW: 需要全文翻译内容"  
+     - 被删除的 key，从其他语言文件中一并删除  
+
+  4. 生成翻译状态报告  
+     - 列出所有待翻译项  
+     - 显示各语言的翻译完成度  
+     - 输出到 translation-status.md 文件中

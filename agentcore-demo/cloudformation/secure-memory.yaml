@@ -1,0 +1,172 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Secure memory resources for AWS AgentCore'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - test
+      - prod
+    Description: Environment name
+    
+  TableName:
+    Type: String
+    Default: agentcore-secure-memory
+    Description: Name of the DynamoDB table
+    
+  KmsKeyAlias:
+    Type: String
+    Default: alias/agentcore-memory-key
+    Description: Alias for the KMS key
+    
+  EnableEncryption:
+    Type: String
+    Default: 'true'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Enable server-side encryption for the DynamoDB table
+
+Resources:
+  # KMS key for encrypting data
+  MemoryEncryptionKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: !Sub 'KMS key for encrypting AWS AgentCore memory data in ${Environment}'
+      Enabled: true
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: Enable IAM User Permissions
+            Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:aws:iam::${AWS::AccountId}:root'
+            Action: 'kms:*'
+            Resource: '*'
+          - Sid: Allow DynamoDB to use the key
+            Effect: Allow
+            Principal:
+              Service: dynamodb.amazonaws.com
+            Action:
+              - kms:Encrypt
+              - kms:Decrypt
+              - kms:ReEncrypt*
+              - kms:GenerateDataKey*
+              - kms:DescribeKey
+            Resource: '*'
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Service
+          Value: AgentCore
+        - Key: Component
+          Value: Memory
+  
+  # KMS key alias
+  MemoryEncryptionKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: !Ref KmsKeyAlias
+      TargetKeyId: !Ref MemoryEncryptionKey
+  
+  # DynamoDB table for secure memory
+  SecureMemoryTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${TableName}-${Environment}'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: key
+          AttributeType: S
+      KeySchema:
+        - AttributeName: key
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      SSESpecification:
+        Fn::If:
+          - EnableEncryption
+          - SSEEnabled: true
+            SSEType: KMS
+            KMSMasterKeyId: !Ref MemoryEncryptionKey
+          - SSEEnabled: false
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Service
+          Value: AgentCore
+        - Key: Component
+          Value: SecureMemory
+  
+  # IAM role for accessing secure memory
+  SecureMemoryRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 'agentcore-secure-memory-${Environment}'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: SecureMemoryAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                Resource: !GetAtt SecureMemoryTable.Arn
+              - Effect: Allow
+                Action:
+                  - kms:Decrypt
+                  - kms:Encrypt
+                  - kms:GenerateDataKey
+                Resource: !GetAtt MemoryEncryptionKey.Arn
+
+Conditions:
+  EnableEncryption: !Equals [!Ref EnableEncryption, 'true']
+
+Outputs:
+  TableName:
+    Description: Name of the secure memory DynamoDB table
+    Value: !Ref SecureMemoryTable
+    Export:
+      Name: !Sub '${AWS::StackName}-TableName'
+      
+  TableArn:
+    Description: ARN of the secure memory DynamoDB table
+    Value: !GetAtt SecureMemoryTable.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-TableArn'
+      
+  KmsKeyId:
+    Description: ID of the KMS key for encrypting memory data
+    Value: !Ref MemoryEncryptionKey
+    Export:
+      Name: !Sub '${AWS::StackName}-KmsKeyId'
+      
+  KmsKeyArn:
+    Description: ARN of the KMS key for encrypting memory data
+    Value: !GetAtt MemoryEncryptionKey.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-KmsKeyArn'
+      
+  RoleArn:
+    Description: ARN of the IAM role for accessing secure memory
+    Value: !GetAtt SecureMemoryRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-RoleArn'

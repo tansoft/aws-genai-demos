@@ -1,0 +1,129 @@
+{
+  "customers": [
+    {
+      "id": "C001",
+      "name": "Acme Corporation",
+      "segment": "Enterprise",
+      "region": "North",
+      "contact": {
+        "name": "John Smith",
+        "email": "john.smith@acme.example.com",
+        "phone": "555-123-4567"
+      },
+      "purchases": [
+        {
+          "date": "2023-01-01",
+          "product": "Product A",
+          "amount": 10000,
+          "units": 100
+        },
+        {
+          "date": "2023-01-02",
+          "product": "Product C",
+          "amount": 15000,
+          "units": 150
+        }
+      ]
+    },
+    {
+      "id": "C002",
+      "name": "Beta Industries",
+      "segment": "Mid-Market",
+      "region": "South",
+      "contact": {
+        "name": "Jane Doe",
+        "email": "jane.doe@beta.example.com",
+        "phone": "555-234-5678"
+      },
+      "purchases": [
+        {
+          "date": "2023-01-01",
+          "product": "Product B",
+          "amount": 5000,
+          "units": 50
+        },
+        {
+          "date": "2023-01-03",
+          "product": "Product A",
+          "amount": 8000,
+          "units": 80
+        }
+      ]
+    },
+    {
+      "id": "C003",
+      "name": "Gamma Tech",
+      "segment": "Enterprise",
+      "region": "East",
+      "contact": {
+        "name": "Robert Johnson",
+        "email": "robert.johnson@gamma.example.com",
+        "phone": "555-345-6789"
+      },
+      "purchases": [
+        {
+          "date": "2023-01-02",
+          "product": "Product A",
+          "amount": 12000,
+          "units": 120
+        },
+        {
+          "date": "2023-01-03",
+          "product": "Product C",
+          "amount": 18000,
+          "units": 180
+        }
+      ]
+    },
+    {
+      "id": "C004",
+      "name": "Delta Corp",
+      "segment": "SMB",
+      "region": "West",
+      "contact": {
+        "name": "Sarah Williams",
+        "email": "sarah.williams@delta.example.com",
+        "phone": "555-456-7890"
+      },
+      "purchases": [
+        {
+          "date": "2023-01-01",
+          "product": "Product B",
+          "amount": 3000,
+          "units": 30
+        },
+        {
+          "date": "2023-01-02",
+          "product": "Product A",
+          "amount": 4000,
+          "units": 40
+        }
+      ]
+    },
+    {
+      "id": "C005",
+      "name": "Epsilon Ltd",
+      "segment": "Mid-Market",
+      "region": "North",
+      "contact": {
+        "name": "Michael Brown",
+        "email": "michael.brown@epsilon.example.com",
+        "phone": "555-567-8901"
+      },
+      "purchases": [
+        {
+          "date": "2023-01-02",
+          "product": "Product B",
+          "amount": 6000,
+          "units": 60
+        },
+        {
+          "date": "2023-01-03",
+          "product": "Product C",
+          "amount": 9000,
+          "units": 90
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,270 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Advanced AWS AgentCore Runtime Serverless Application
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - test
+      - prod
+    Description: Environment name
+    
+  ModelProvider:
+    Type: String
+    Default: openai
+    AllowedValues:
+      - openai
+      - anthropic
+    Description: Model provider to use
+    
+  ModelName:
+    Type: String
+    Default: gpt-4
+    Description: Model name to use
+    
+  ModelProtocol:
+    Type: String
+    Default: openai
+    AllowedValues:
+      - openai
+      - anthropic
+    Description: Protocol to use
+    
+  ModelTemperature:
+    Type: Number
+    Default: 0.7
+    MinValue: 0.0
+    MaxValue: 1.0
+    Description: Temperature for model generation
+    
+  ModelMaxTokens:
+    Type: Number
+    Default: 1000
+    MinValue: 1
+    MaxValue: 8192
+    Description: Maximum tokens for model generation
+    
+  OpenAIApiKey:
+    Type: String
+    NoEcho: true
+    Description: OpenAI API Key (leave empty if not using OpenAI)
+    Default: ''
+    
+  AnthropicApiKey:
+    Type: String
+    NoEcho: true
+    Description: Anthropic API Key (leave empty if not using Anthropic)
+    Default: ''
+    
+  EnableCaching:
+    Type: String
+    Default: 'true'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Enable response caching
+    
+  CacheTTL:
+    Type: Number
+    Default: 3600
+    Description: Cache TTL in seconds
+    
+  EnableRateLimiting:
+    Type: String
+    Default: 'true'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Enable rate limiting
+    
+  RateLimit:
+    Type: Number
+    Default: 100
+    Description: Rate limit (requests per minute)
+
+Globals:
+  Function:
+    Timeout: 30
+    MemorySize: 256
+    Runtime: nodejs18.x
+    Environment:
+      Variables:
+        NODE_ENV: !Ref Environment
+        MODEL_PROVIDER: !Ref ModelProvider
+        MODEL_NAME: !Ref ModelName
+        MODEL_PROTOCOL: !Ref ModelProtocol
+        MODEL_TEMPERATURE: !Ref ModelTemperature
+        MODEL_MAX_TOKENS: !Ref ModelMaxTokens
+        OPENAI_API_KEY: !Ref OpenAIApiKey
+        ANTHROPIC_API_KEY: !Ref AnthropicApiKey
+        ENABLE_CACHING: !Ref EnableCaching
+        CACHE_TTL: !Ref CacheTTL
+        ENABLE_RATE_LIMITING: !Ref EnableRateLimiting
+        RATE_LIMIT: !Ref RateLimit
+        CACHE_TABLE_NAME: !Ref CacheTable
+
+Resources:
+  # Runtime Lambda function
+  RuntimeFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub 'agentcore-runtime-${Environment}'
+      Handler: dist/runtime/lambda.handler
+      CodeUri: ../../
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            Path: /complete
+            Method: post
+            RestApiId: !Ref RuntimeApi
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CacheTable
+        - CloudWatchPutMetricPolicy: {}
+      Tracing: Active
+        
+  # API Gateway for the Runtime Lambda function
+  RuntimeApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: !Ref Environment
+      EndpointConfiguration: REGIONAL
+      Cors:
+        AllowMethods: "'POST, OPTIONS'"
+        AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+        AllowOrigin: "'*'"
+      MethodSettings:
+        - ResourcePath: '/*'
+          HttpMethod: '*'
+          MetricsEnabled: true
+          DataTraceEnabled: true
+          LoggingLevel: INFO
+      TracingEnabled: true
+      CacheClusterEnabled: !Ref EnableCaching
+      CacheClusterSize: '0.5'
+      
+  # DynamoDB table for response caching
+  CacheTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub 'agentcore-cache-${Environment}'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: requestHash
+          AttributeType: S
+      KeySchema:
+        - AttributeName: requestHash
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+        
+  # CloudWatch Dashboard
+  Dashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: !Sub 'AgentCore-Runtime-${Environment}'
+      DashboardBody: !Sub |
+        {
+          "widgets": [
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 0,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "metrics": [
+                  [ "AWS/Lambda", "Invocations", "FunctionName", "${RuntimeFunction}" ],
+                  [ ".", "Errors", ".", "." ],
+                  [ ".", "Duration", ".", ".", { "stat": "Average" } ],
+                  [ ".", "Duration", ".", ".", { "stat": "Maximum" } ]
+                ],
+                "view": "timeSeries",
+                "stacked": false,
+                "region": "${AWS::Region}",
+                "title": "Lambda Metrics",
+                "period": 300
+              }
+            },
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 6,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "metrics": [
+                  [ "AWS/ApiGateway", "Count", "ApiName", "${RuntimeApi}", { "stat": "Sum" } ],
+                  [ ".", "4XXError", ".", ".", { "stat": "Sum" } ],
+                  [ ".", "5XXError", ".", ".", { "stat": "Sum" } ],
+                  [ ".", "Latency", ".", ".", { "stat": "Average" } ],
+                  [ ".", "Latency", ".", ".", { "stat": "p90" } ]
+                ],
+                "view": "timeSeries",
+                "stacked": false,
+                "region": "${AWS::Region}",
+                "title": "API Gateway Metrics",
+                "period": 300
+              }
+            }
+          ]
+        }
+        
+  # CloudWatch Alarm for Lambda errors
+  LambdaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'AgentCore-Runtime-${Environment}-LambdaErrors'
+      AlarmDescription: 'Alarm if the Lambda function has too many errors'
+      Namespace: 'AWS/Lambda'
+      MetricName: 'Errors'
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref RuntimeFunction
+      Statistic: 'Sum'
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 5
+      ComparisonOperator: 'GreaterThanThreshold'
+      TreatMissingData: 'notBreaching'
+      
+  # CloudWatch Alarm for API Gateway 5XX errors
+  ApiGateway5xxAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'AgentCore-Runtime-${Environment}-ApiGateway5xx'
+      AlarmDescription: 'Alarm if the API Gateway has too many 5XX errors'
+      Namespace: 'AWS/ApiGateway'
+      MetricName: '5XXError'
+      Dimensions:
+        - Name: ApiName
+          Value: !Ref RuntimeApi
+      Statistic: 'Sum'
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 5
+      ComparisonOperator: 'GreaterThanThreshold'
+      TreatMissingData: 'notBreaching'
+
+Outputs:
+  RuntimeApiUrl:
+    Description: URL of the Runtime API
+    Value: !Sub 'https://${RuntimeApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}/complete'
+    
+  RuntimeFunctionArn:
+    Description: ARN of the Runtime Lambda function
+    Value: !GetAtt RuntimeFunction.Arn
+    
+  CacheTableName:
+    Description: Name of the cache table
+    Value: !Ref CacheTable
+    
+  DashboardUrl:
+    Description: URL of the CloudWatch Dashboard
+    Value: !Sub 'https://${AWS::Region}.console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#dashboards:name=${Dashboard}'

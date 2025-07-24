@@ -1,0 +1,80 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'DynamoDB table for AWS AgentCore Memory'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - test
+      - prod
+    Description: Environment name
+    
+  TableName:
+    Type: String
+    Default: agentcore-memory
+    Description: Name of the DynamoDB table
+    
+  ReadCapacity:
+    Type: Number
+    Default: 5
+    Description: Read capacity units for the table
+    
+  WriteCapacity:
+    Type: Number
+    Default: 5
+    Description: Write capacity units for the table
+    
+  BillingMode:
+    Type: String
+    Default: PROVISIONED
+    AllowedValues:
+      - PROVISIONED
+      - PAY_PER_REQUEST
+    Description: Billing mode for the table
+
+Resources:
+  MemoryTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${TableName}-${Environment}'
+      BillingMode: !Ref BillingMode
+      AttributeDefinitions:
+        - AttributeName: key
+          AttributeType: S
+      KeySchema:
+        - AttributeName: key
+          KeyType: HASH
+      ProvisionedThroughput:
+        Fn::If:
+          - IsProvisioned
+          - ReadCapacityUnits: !Ref ReadCapacity
+            WriteCapacityUnits: !Ref WriteCapacity
+          - Ref: AWS::NoValue
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Service
+          Value: AgentCore
+        - Key: Component
+          Value: Memory
+
+Conditions:
+  IsProvisioned: !Equals [!Ref BillingMode, 'PROVISIONED']
+
+Outputs:
+  TableName:
+    Description: Name of the DynamoDB table
+    Value: !Ref MemoryTable
+    Export:
+      Name: !Sub '${AWS::StackName}-TableName'
+      
+  TableArn:
+    Description: ARN of the DynamoDB table
+    Value: !GetAtt MemoryTable.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-TableArn'

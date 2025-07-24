@@ -1,0 +1,113 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: AWS AgentCore Runtime Serverless Application
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - test
+      - prod
+    Description: Environment name
+    
+  ModelProvider:
+    Type: String
+    Default: openai
+    AllowedValues:
+      - openai
+      - anthropic
+    Description: Model provider to use
+    
+  ModelName:
+    Type: String
+    Default: gpt-4
+    Description: Model name to use
+    
+  ModelProtocol:
+    Type: String
+    Default: openai
+    AllowedValues:
+      - openai
+      - anthropic
+    Description: Protocol to use
+    
+  ModelTemperature:
+    Type: Number
+    Default: 0.7
+    MinValue: 0.0
+    MaxValue: 1.0
+    Description: Temperature for model generation
+    
+  ModelMaxTokens:
+    Type: Number
+    Default: 1000
+    MinValue: 1
+    MaxValue: 8192
+    Description: Maximum tokens for model generation
+    
+  OpenAIApiKey:
+    Type: String
+    NoEcho: true
+    Description: OpenAI API Key (leave empty if not using OpenAI)
+    Default: ''
+    
+  AnthropicApiKey:
+    Type: String
+    NoEcho: true
+    Description: Anthropic API Key (leave empty if not using Anthropic)
+    Default: ''
+
+Globals:
+  Function:
+    Timeout: 30
+    MemorySize: 256
+    Runtime: nodejs18.x
+    Environment:
+      Variables:
+        NODE_ENV: !Ref Environment
+        MODEL_PROVIDER: !Ref ModelProvider
+        MODEL_NAME: !Ref ModelName
+        MODEL_PROTOCOL: !Ref ModelProtocol
+        MODEL_TEMPERATURE: !Ref ModelTemperature
+        MODEL_MAX_TOKENS: !Ref ModelMaxTokens
+        OPENAI_API_KEY: !Ref OpenAIApiKey
+        ANTHROPIC_API_KEY: !Ref AnthropicApiKey
+
+Resources:
+  # Runtime Lambda function
+  RuntimeFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub 'agentcore-runtime-${Environment}'
+      Handler: dist/runtime/lambda.handler
+      CodeUri: ../../
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            Path: /complete
+            Method: post
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        
+  # API Gateway for the Runtime Lambda function
+  RuntimeApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: !Ref Environment
+      EndpointConfiguration: REGIONAL
+      Cors:
+        AllowMethods: "'POST, OPTIONS'"
+        AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+        AllowOrigin: "'*'"
+
+Outputs:
+  RuntimeApiUrl:
+    Description: URL of the Runtime API
+    Value: !Sub 'https://${RuntimeApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}/complete'
+    
+  RuntimeFunctionArn:
+    Description: ARN of the Runtime Lambda function
+    Value: !GetAtt RuntimeFunction.Arn

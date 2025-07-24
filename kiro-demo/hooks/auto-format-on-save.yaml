@@ -1,0 +1,24 @@
+# 名称：auto-format-on-save
+# 说明：在保存文件时自动格式化代码并整理 import 语句
+
+Trigger: File Save
+Target: "**/*.{js,ts,jsx,tsx}"
+Instructions: |
+  每当保存文件时，依次执行以下操作：
+
+  1. 使用 ESLint 检查问题  
+     - 能自动修复的部分直接修复  
+     - 无法自动修复的问题列出清单  
+
+  2. 使用 Prettier 格式化代码  
+     - 优先使用项目中的 .prettierrc 配置  
+     - 如果没有则使用默认配置  
+
+  3. 整理 import 语句  
+     - 删除未使用的 import  
+     - 调整 import 顺序（外部 → 内部 → 相对路径）  
+     - 合并重复的 import  
+
+  4. 检查 console.log  
+     - 如果在正式代码中检测到 console.log，发出警告  
+     - 如果是调试用途，建议加上 `/* debug */` 注释说明

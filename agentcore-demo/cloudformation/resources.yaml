@@ -1,0 +1,304 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'AWS resources for AgentCore demos'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - test
+      - prod
+    Description: Environment name
+    
+  ModelProvider:
+    Type: String
+    Default: openai
+    AllowedValues:
+      - openai
+      - anthropic
+    Description: Model provider to use
+    
+  ModelName:
+    Type: String
+    Default: gpt-4
+    Description: Model name to use
+    
+  ModelProtocol:
+    Type: String
+    Default: openai
+    AllowedValues:
+      - openai
+      - anthropic
+    Description: Protocol to use
+    
+  ModelTemperature:
+    Type: Number
+    Default: 0.7
+    MinValue: 0.0
+    MaxValue: 1.0
+    Description: Temperature for model generation
+    
+  ModelMaxTokens:
+    Type: Number
+    Default: 1000
+    MinValue: 1
+    MaxValue: 8192
+    Description: Maximum tokens for model generation
+
+Resources:
+  # Runtime Lambda function
+  RuntimeFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'agentcore-runtime-${Environment}'
+      Handler: dist/runtime/lambda.handler
+      Role: !GetAtt RuntimeFunctionRole.Arn
+      Code:
+        S3Bucket: !Ref DeploymentBucket
+        S3Key: !Sub '${Environment}/runtime-lambda.zip'
+      Runtime: nodejs18.x
+      Timeout: 30
+      MemorySize: 256
+      Environment:
+        Variables:
+          NODE_ENV: !Ref Environment
+          MODEL_PROVIDER: !Ref ModelProvider
+          MODEL_NAME: !Ref ModelName
+          MODEL_PROTOCOL: !Ref ModelProtocol
+          MODEL_TEMPERATURE: !Ref ModelTemperature
+          MODEL_MAX_TOKENS: !Ref ModelMaxTokens
+          
+  # IAM Role for the Runtime Lambda function
+  RuntimeFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        
+  # API Gateway for the Runtime Lambda function
+  RuntimeApi:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: !Sub 'agentcore-runtime-api-${Environment}'
+      Description: API for AWS AgentCore Runtime
+      EndpointConfiguration:
+        Types:
+          - REGIONAL
+          
+  # API Gateway Resource for the Runtime Lambda function
+  RuntimeApiResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RuntimeApi
+      ParentId: !GetAtt RuntimeApi.RootResourceId
+      PathPart: 'complete'
+      
+  # API Gateway Method for the Runtime Lambda function
+  RuntimeApiMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RuntimeApi
+      ResourceId: !Ref RuntimeApiResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${RuntimeFunction.Arn}/invocations'
+      
+  # API Gateway Deployment for the Runtime Lambda function
+  RuntimeApiDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn:
+      - RuntimeApiMethod
+    Properties:
+      RestApiId: !Ref RuntimeApi
+      StageName: !Ref Environment
+      
+  # Lambda Permission for API Gateway
+  RuntimeApiPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref RuntimeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RuntimeApi}/${Environment}/POST/complete'
+      
+  # S3 Bucket for deployment artifacts
+  DeploymentBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub 'agentcore-deployment-${Environment}-${AWS::AccountId}'
+      VersioningConfiguration:
+        Status: Enabled
+      
+  # DynamoDB table for memory storage
+  MemoryTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub 'agentcore-memory-${Environment}'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: key
+          AttributeType: S
+      KeySchema:
+        - AttributeName: key
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+  # Cognito User Pool for identity management
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub 'agentcore-users-${Environment}'
+      AutoVerifiedAttributes:
+        - email
+      UsernameAttributes:
+        - email
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: false
+          RequireUppercase: true
+
+  # Cognito User Pool Client
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: !Sub 'agentcore-client-${Environment}'
+      UserPoolId: !Ref UserPool
+      GenerateSecret: false
+      ExplicitAuthFlows:
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+
+  # Lambda function for tool gateway
+  ToolGatewayFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'agentcore-tool-gateway-${Environment}'
+      Handler: index.handler
+      Role: !GetAtt ToolGatewayRole.Arn
+      Code:
+        ZipFile: |
+          exports.handler = async (event) => {
+            console.log('Tool Gateway received event:', JSON.stringify(event));
+            
+            // Simple example tool that returns the current time
+            if (event.tool === 'getCurrentTime') {
+              return {
+                result: new Date().toISOString()
+              };
+            }
+            
+            // Simple example tool that performs a calculation
+            if (event.tool === 'calculate') {
+              const { operation, a, b } = event.parameters;
+              let result;
+              
+              switch (operation) {
+                case 'add':
+                  result = a + b;
+                  break;
+                case 'subtract':
+                  result = a - b;
+                  break;
+                case 'multiply':
+                  result = a * b;
+                  break;
+                case 'divide':
+                  if (b === 0) {
+                    throw new Error('Division by zero');
+                  }
+                  result = a / b;
+                  break;
+                default:
+                  throw new Error(`Unknown operation: ${operation}`);
+              }
+              
+              return {
+                result
+              };
+            }
+            
+            throw new Error(`Unknown tool: ${event.tool}`);
+          };
+      Runtime: nodejs18.x
+      Timeout: 30
+      MemorySize: 128
+
+  # IAM Role for the Tool Gateway Lambda function
+  ToolGatewayRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+  # CloudWatch Log Group for the Lambda function
+  ToolGatewayLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/agentcore-tool-gateway-${Environment}'
+      RetentionInDays: 7
+
+Outputs:
+  RuntimeApiUrl:
+    Description: URL of the Runtime API
+    Value: !Sub 'https://${RuntimeApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}/complete'
+    Export:
+      Name: !Sub '${AWS::StackName}-RuntimeApiUrl'
+      
+  RuntimeFunctionArn:
+    Description: ARN of the Runtime Lambda function
+    Value: !GetAtt RuntimeFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-RuntimeFunctionArn'
+      
+  DeploymentBucketName:
+    Description: Name of the deployment bucket
+    Value: !Ref DeploymentBucket
+    Export:
+      Name: !Sub '${AWS::StackName}-DeploymentBucketName'
+      
+  MemoryTableName:
+    Description: Name of the DynamoDB table for memory storage
+    Value: !Ref MemoryTable
+    Export:
+      Name: !Sub '${AWS::StackName}-MemoryTableName'
+
+  UserPoolId:
+    Description: ID of the Cognito User Pool
+    Value: !Ref UserPool
+    Export:
+      Name: !Sub '${AWS::StackName}-UserPoolId'
+
+  UserPoolClientId:
+    Description: ID of the Cognito User Pool Client
+    Value: !Ref UserPoolClient
+    Export:
+      Name: !Sub '${AWS::StackName}-UserPoolClientId'
+
+  ToolGatewayFunctionArn:
+    Description: ARN of the Tool Gateway Lambda function
+    Value: !GetAtt ToolGatewayFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-ToolGatewayFunctionArn'

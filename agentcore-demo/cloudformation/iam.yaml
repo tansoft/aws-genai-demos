@@ -1,0 +1,189 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'AWS IAM resources for AgentCore'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - test
+      - prod
+    Description: Environment name
+
+Resources:
+  # IAM Role for AgentCore Admin
+  AgentCoreAdminRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 'AgentCore-Admin-${Environment}'
+      Description: 'Admin role for AgentCore'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess
+        - arn:aws:iam::aws:policy/AmazonCognitoPowerUser
+      Tags:
+        - Key: Name
+          Value: AgentCoreAdmin
+        - Key: Environment
+          Value: !Ref Environment
+
+  # IAM Role for AgentCore User
+  AgentCoreUserRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 'AgentCore-User-${Environment}'
+      Description: 'User role for AgentCore'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Tags:
+        - Key: Name
+          Value: AgentCoreUser
+        - Key: Environment
+          Value: !Ref Environment
+
+  # IAM Policy for AgentCore User
+  AgentCoreUserPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: !Sub 'AgentCoreUserPolicy-${Environment}'
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - dynamodb:GetItem
+              - dynamodb:Query
+              - dynamodb:Scan
+            Resource: !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/agentcore-memory-${Environment}'
+          - Effect: Allow
+            Action:
+              - cognito-idp:GetUser
+              - cognito-idp:ListUsers
+            Resource: '*'
+      Roles:
+        - !Ref AgentCoreUserRole
+
+  # IAM Role for AgentCore Guest
+  AgentCoreGuestRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 'AgentCore-Guest-${Environment}'
+      Description: 'Guest role for AgentCore'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Tags:
+        - Key: Name
+          Value: AgentCoreGuest
+        - Key: Environment
+          Value: !Ref Environment
+
+  # IAM Policy for AgentCore Guest
+  AgentCoreGuestPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: !Sub 'AgentCoreGuestPolicy-${Environment}'
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - dynamodb:GetItem
+              - dynamodb:Query
+              - dynamodb:Scan
+            Resource: !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/agentcore-memory-${Environment}'
+            Condition:
+              StringEquals:
+                'dynamodb:LeadingKeys': 
+                  - '${cognito-identity.amazonaws.com:sub}'
+      Roles:
+        - !Ref AgentCoreGuestRole
+
+  # IAM Role for Lambda functions
+  AgentCoreLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 'AgentCore-Lambda-${Environment}'
+      Description: 'Lambda execution role for AgentCore'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Tags:
+        - Key: Name
+          Value: AgentCoreLambda
+        - Key: Environment
+          Value: !Ref Environment
+
+  # IAM Policy for Lambda functions
+  AgentCoreLambdaPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: !Sub 'AgentCoreLambdaPolicy-${Environment}'
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - dynamodb:GetItem
+              - dynamodb:PutItem
+              - dynamodb:UpdateItem
+              - dynamodb:DeleteItem
+              - dynamodb:Query
+              - dynamodb:Scan
+            Resource: !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/agentcore-memory-${Environment}'
+          - Effect: Allow
+            Action:
+              - cognito-idp:AdminGetUser
+              - cognito-idp:AdminInitiateAuth
+              - cognito-idp:AdminRespondToAuthChallenge
+            Resource: '*'
+      Roles:
+        - !Ref AgentCoreLambdaRole
+
+Outputs:
+  AgentCoreAdminRoleArn:
+    Description: ARN of the AgentCore Admin role
+    Value: !GetAtt AgentCoreAdminRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-AgentCoreAdminRoleArn'
+
+  AgentCoreUserRoleArn:
+    Description: ARN of the AgentCore User role
+    Value: !GetAtt AgentCoreUserRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-AgentCoreUserRoleArn'
+
+  AgentCoreGuestRoleArn:
+    Description: ARN of the AgentCore Guest role
+    Value: !GetAtt AgentCoreGuestRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-AgentCoreGuestRoleArn'
+
+  AgentCoreLambdaRoleArn:
+    Description: ARN of the AgentCore Lambda role
+    Value: !GetAtt AgentCoreLambdaRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-AgentCoreLambdaRoleArn'
+</content>

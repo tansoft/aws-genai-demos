@@ -1,0 +1,39 @@
+# 名称：react-component-scaffold
+# 说明：在创建新的 React 组件时，自动生成所需的相关文件
+
+Trigger: File Create
+Target: "src/components/**/*.tsx"
+Instructions: |
+  当你新建一个 React 组件时，将自动执行以下操作：
+
+  1. 生成组件的基础结构代码
+     ```typescript
+     import React from 'react'
+     import styles from './ComponentName.module.css'
+     
+     interface ComponentNameProps {
+       // TODO: 定义组件的 props
+     }
+     
+     export const ComponentName: React.FC<ComponentNameProps> = (props) => {
+       return (
+         <div className={styles.container}>
+           {/* TODO: 组件实现 */}
+         </div>
+       )
+     }
+     ```
+
+  2. 创建对应的测试文件  
+     - 在同一目录下生成 ComponentName.test.tsx  
+     - 包含基础的渲染测试用例
+
+  3. 创建 Storybook 的 story 文件  
+     - 生成 ComponentName.stories.tsx  
+     - 包含基础的组件展示 story
+
+  4. 创建 CSS 模块样式文件  
+     - 生成 ComponentName.module.css  
+     - 包含基础样式定义
+
+  5. 自动向 index.ts 添加导出语句

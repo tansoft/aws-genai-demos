@@ -1,0 +1,46 @@
+{
+    "mcpServers": {
+        "aws-docs": {
+            "command": "uvx",
+            "args": [
+                "awslabs.aws-documentation-mcp-server@latest" // AWS 官方文档，需要先安装uv（首次使用时执行）
+                // curl -LsSf https://astral.sh/uv/install.sh | sh
+                // # 需要 Python 3.10 及以上版本
+                // uv python install 3.10
+            ],
+            "env": {
+                "FASTMCP_LOG_LEVEL": "ERROR" // 日志级别设为最小，减少输出
+            },
+            "disabled": false,
+            "autoApprove": [
+                "mcp_aws_docs_search_documentation", // 搜索请求自动批准
+                "mcp_aws_docs_read_documentation" // 读取请求自动批准
+            ]
+        },
+        "github": {
+            "command": "npx",
+            "args": [
+                "-y",
+                "@modelcontextprotocol/server-github"
+            ],
+            "env": {
+                "GITHUB_PERSONAL_ACCESS_TOKEN": "$GITHUB_TOKEN"
+            },
+            "timeout": 10000, // 10秒超时
+            "trust": false // 运行前需确认
+        },
+        "web-search": {
+            "command": "npx",
+            "args": [
+                "-y",
+                "@modelcontextprotocol/server-bravesearch"
+            ],
+            "env": {
+                "BRAVE_API_KEY": "$BRAVE_API_KEY"
+            },
+            "autoApprove": [
+                "brave_search"
+            ] // 搜索自动执行
+        }
+    }
+}

@@ -1,0 +1,469 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'AWS Code Interpreter resources for AgentCore'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - test
+      - prod
+    Description: Environment name
+    
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC ID for the ECS cluster
+    
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Subnet IDs for the ECS cluster
+    
+  PythonImage:
+    Type: String
+    Default: python:3.9-slim
+    Description: Docker image for Python code execution
+    
+  NodeImage:
+    Type: String
+    Default: node:16-alpine
+    Description: Docker image for JavaScript/TypeScript code execution
+    
+  RImage:
+    Type: String
+    Default: r-base:latest
+    Description: Docker image for R code execution
+
+Resources:
+  # ECS Cluster for code execution
+  CodeExecutionCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub 'agentcore-code-execution-${Environment}'
+      CapacityProviders:
+        - FARGATE
+        - FARGATE_SPOT
+      DefaultCapacityProviderStrategy:
+        - CapacityProvider: FARGATE
+          Weight: 1
+      Tags:
+        - Key: Name
+          Value: !Sub 'agentcore-code-execution-${Environment}'
+        - Key: Environment
+          Value: !Ref Environment
+          
+  # Task execution role
+  TaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 'AgentCore-CodeExecution-${Environment}'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      Tags:
+        - Key: Name
+          Value: !Sub 'AgentCore-CodeExecution-${Environment}'
+        - Key: Environment
+          Value: !Ref Environment
+          
+  # Task role with restricted permissions
+  TaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 'AgentCore-CodeExecutionTask-${Environment}'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      Tags:
+        - Key: Name
+          Value: !Sub 'AgentCore-CodeExecutionTask-${Environment}'
+        - Key: Environment
+          Value: !Ref Environment
+          
+  # Security group for code execution tasks
+  CodeExecutionSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub 'agentcore-code-execution-${Environment}'
+      GroupDescription: Security group for code execution tasks
+      VpcId: !Ref VpcId
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: Allow all outbound traffic
+      Tags:
+        - Key: Name
+          Value: !Sub 'agentcore-code-execution-${Environment}'
+        - Key: Environment
+          Value: !Ref Environment
+          
+  # Python task definition
+  PythonTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub 'agentcore-python-${Environment}'
+      Cpu: '256'
+      Memory: '512'
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      ExecutionRoleArn: !GetAtt TaskExecutionRole.Arn
+      TaskRoleArn: !GetAtt TaskRole.Arn
+      ContainerDefinitions:
+        - Name: python
+          Image: !Ref PythonImage
+          Essential: true
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref CodeExecutionLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: python
+          Command:
+            - python
+            - -c
+            - "import sys; exec(sys.stdin.read())"
+          WorkingDirectory: /workspace
+          ReadonlyRootFilesystem: true
+          LinuxParameters:
+            Capabilities:
+              Drop:
+                - ALL
+          MountPoints:
+            - SourceVolume: workspace
+              ContainerPath: /workspace
+              ReadOnly: false
+      Volumes:
+        - Name: workspace
+          
+  # JavaScript task definition
+  JavaScriptTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub 'agentcore-javascript-${Environment}'
+      Cpu: '256'
+      Memory: '512'
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      ExecutionRoleArn: !GetAtt TaskExecutionRole.Arn
+      TaskRoleArn: !GetAtt TaskRole.Arn
+      ContainerDefinitions:
+        - Name: javascript
+          Image: !Ref NodeImage
+          Essential: true
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref CodeExecutionLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: javascript
+          Command:
+            - node
+            - -e
+            - "eval(require('fs').readFileSync('/dev/stdin', 'utf8'))"
+          WorkingDirectory: /workspace
+          ReadonlyRootFilesystem: true
+          LinuxParameters:
+            Capabilities:
+              Drop:
+                - ALL
+          MountPoints:
+            - SourceVolume: workspace
+              ContainerPath: /workspace
+              ReadOnly: false
+      Volumes:
+        - Name: workspace
+          
+  # R task definition
+  RTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub 'agentcore-r-${Environment}'
+      Cpu: '256'
+      Memory: '512'
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      ExecutionRoleArn: !GetAtt TaskExecutionRole.Arn
+      TaskRoleArn: !GetAtt TaskRole.Arn
+      ContainerDefinitions:
+        - Name: r
+          Image: !Ref RImage
+          Essential: true
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref CodeExecutionLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: r
+          Command:
+            - Rscript
+            - -e
+            - "eval(parse(text=readLines('stdin')))"
+          WorkingDirectory: /workspace
+          ReadonlyRootFilesystem: true
+          LinuxParameters:
+            Capabilities:
+              Drop:
+                - ALL
+          MountPoints:
+            - SourceVolume: workspace
+              ContainerPath: /workspace
+              ReadOnly: false
+      Volumes:
+        - Name: workspace
+          
+  # CloudWatch Log Group for code execution
+  CodeExecutionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/ecs/agentcore-code-execution-${Environment}'
+      RetentionInDays: 7
+      
+  # Lambda function for code execution
+  CodeExecutionFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'agentcore-code-execution-${Environment}'
+      Handler: index.handler
+      Role: !GetAtt CodeExecutionFunctionRole.Arn
+      Code:
+        ZipFile: |
+          const AWS = require('aws-sdk');
+          const ecs = new AWS.ECS();
+          const logs = new AWS.CloudWatchLogs();
+          
+          exports.handler = async (event) => {
+            console.log('Code execution request:', JSON.stringify(event));
+            
+            try {
+              // Extract code and language
+              const { code, language, timeout = 30000 } = event;
+              
+              if (!code) {
+                throw new Error('Code is required');
+              }
+              
+              if (!language) {
+                throw new Error('Language is required');
+              }
+              
+              // Determine task definition based on language
+              let taskDefinition;
+              let containerName;
+              
+              switch (language.toLowerCase()) {
+                case 'python':
+                  taskDefinition = process.env.PYTHON_TASK_DEFINITION;
+                  containerName = 'python';
+                  break;
+                case 'javascript':
+                case 'typescript':
+                  taskDefinition = process.env.JAVASCRIPT_TASK_DEFINITION;
+                  containerName = 'javascript';
+                  break;
+                case 'r':
+                  taskDefinition = process.env.R_TASK_DEFINITION;
+                  containerName = 'r';
+                  break;
+                default:
+                  throw new Error(`Unsupported language: ${language}`);
+              }
+              
+              // Generate a unique execution ID
+              const executionId = Date.now().toString();
+              
+              // Run the task
+              const runTaskParams = {
+                cluster: process.env.CLUSTER_ARN,
+                taskDefinition,
+                count: 1,
+                launchType: 'FARGATE',
+                networkConfiguration: {
+                  awsvpcConfiguration: {
+                    subnets: process.env.SUBNET_IDS.split(','),
+                    securityGroups: [process.env.SECURITY_GROUP_ID],
+                    assignPublicIp: 'DISABLED',
+                  },
+                },
+                overrides: {
+                  containerOverrides: [
+                    {
+                      name: containerName,
+                      environment: [
+                        {
+                          name: 'EXECUTION_ID',
+                          value: executionId,
+                        },
+                      ],
+                    },
+                  ],
+                },
+              };
+              
+              const runTaskResult = await ecs.runTask(runTaskParams).promise();
+              
+              if (!runTaskResult.tasks || runTaskResult.tasks.length === 0) {
+                throw new Error('Failed to start task');
+              }
+              
+              const taskArn = runTaskResult.tasks[0].taskArn;
+              const taskId = taskArn.split('/').pop();
+              
+              console.log(`Started task: ${taskId}`);
+              
+              // Wait for the task to complete
+              const waitParams = {
+                cluster: process.env.CLUSTER_ARN,
+                tasks: [taskArn],
+              };
+              
+              await ecs.waitFor('tasksRunning', waitParams).promise();
+              
+              // Send the code to the task
+              // In a real implementation, this would use SSM Session Manager or similar
+              // For this demo, we'll simulate it
+              
+              // Wait for the task to complete
+              await ecs.waitFor('tasksStopped', waitParams).promise();
+              
+              // Get the task details
+              const describeTasksParams = {
+                cluster: process.env.CLUSTER_ARN,
+                tasks: [taskArn],
+              };
+              
+              const describeTasksResult = await ecs.describeTasks(describeTasksParams).promise();
+              const task = describeTasksResult.tasks[0];
+              
+              // Get the logs
+              const logStreamName = `${language}/${containerName}/${taskId}`;
+              
+              const getLogsParams = {
+                logGroupName: process.env.LOG_GROUP_NAME,
+                logStreamName,
+                startFromHead: true,
+              };
+              
+              const logsResult = await logs.getLogEvents(getLogsParams).promise();
+              
+              // Extract output from logs
+              const output = logsResult.events
+                .map(event => event.message)
+                .join('\n');
+              
+              // Check for errors
+              const exitCode = task.containers[0].exitCode || 0;
+              const error = exitCode !== 0 ? `Process exited with code ${exitCode}` : undefined;
+              
+              return {
+                output,
+                error,
+                executionTime: new Date(task.stoppedAt) - new Date(task.startedAt),
+                taskId,
+              };
+            } catch (error) {
+              console.error('Error executing code:', error);
+              
+              return {
+                output: '',
+                error: error.message,
+                executionTime: 0,
+              };
+            }
+          };
+      Runtime: nodejs18.x
+      Timeout: 300
+      MemorySize: 256
+      Environment:
+        Variables:
+          CLUSTER_ARN: !GetAtt CodeExecutionCluster.Arn
+          PYTHON_TASK_DEFINITION: !Ref PythonTaskDefinition
+          JAVASCRIPT_TASK_DEFINITION: !Ref JavaScriptTaskDefinition
+          R_TASK_DEFINITION: !Ref RTaskDefinition
+          SUBNET_IDS: !Join [',', !Ref SubnetIds]
+          SECURITY_GROUP_ID: !GetAtt CodeExecutionSecurityGroup.GroupId
+          LOG_GROUP_NAME: !Ref CodeExecutionLogGroup
+          
+  # IAM Role for the Code Execution Lambda function
+  CodeExecutionFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 'AgentCore-CodeExecutionFunction-${Environment}'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: ECSAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ecs:RunTask
+                  - ecs:DescribeTasks
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - logs:GetLogEvents
+                Resource: !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:${CodeExecutionLogGroup}:*'
+              - Effect: Allow
+                Action:
+                  - iam:PassRole
+                Resource:
+                  - !GetAtt TaskExecutionRole.Arn
+                  - !GetAtt TaskRole.Arn
+
+Outputs:
+  ClusterArn:
+    Description: ARN of the ECS cluster
+    Value: !GetAtt CodeExecutionCluster.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-ClusterArn'
+      
+  PythonTaskDefinitionArn:
+    Description: ARN of the Python task definition
+    Value: !Ref PythonTaskDefinition
+    Export:
+      Name: !Sub '${AWS::StackName}-PythonTaskDefinitionArn'
+      
+  JavaScriptTaskDefinitionArn:
+    Description: ARN of the JavaScript task definition
+    Value: !Ref JavaScriptTaskDefinition
+    Export:
+      Name: !Sub '${AWS::StackName}-JavaScriptTaskDefinitionArn'
+      
+  RTaskDefinitionArn:
+    Description: ARN of the R task definition
+    Value: !Ref RTaskDefinition
+    Export:
+      Name: !Sub '${AWS::StackName}-RTaskDefinitionArn'
+      
+  SecurityGroupId:
+    Description: ID of the security group for code execution tasks
+    Value: !GetAtt CodeExecutionSecurityGroup.GroupId
+    Export:
+      Name: !Sub '${AWS::StackName}-SecurityGroupId'
+      
+  CodeExecutionFunctionArn:
+    Description: ARN of the code execution Lambda function
+    Value: !GetAtt CodeExecutionFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-CodeExecutionFunctionArn'

@@ -1,0 +1,225 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Cognito resources for AWS AgentCore Identity'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - test
+      - prod
+    Description: Environment name
+    
+  UserPoolName:
+    Type: String
+    Default: agentcore-users
+    Description: Name of the Cognito user pool
+    
+  ClientName:
+    Type: String
+    Default: agentcore-client
+    Description: Name of the Cognito user pool client
+    
+  AdminEmail:
+    Type: String
+    Description: Email address for the admin user
+    
+  AdminUsername:
+    Type: String
+    Default: admin
+    Description: Username for the admin user
+    
+  AdminPassword:
+    Type: String
+    NoEcho: true
+    Description: Password for the admin user
+    
+  UserEmail:
+    Type: String
+    Description: Email address for the regular user
+    
+  UserUsername:
+    Type: String
+    Default: user
+    Description: Username for the regular user
+    
+  UserPassword:
+    Type: String
+    NoEcho: true
+    Description: Password for the regular user
+
+Resources:
+  # Cognito User Pool
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub '${UserPoolName}-${Environment}'
+      AutoVerifiedAttributes:
+        - email
+      UsernameAttributes:
+        - email
+      MfaConfiguration: 'OFF'
+      Schema:
+        - Name: email
+          AttributeDataType: String
+          Mutable: true
+          Required: true
+        - Name: custom:roles
+          AttributeDataType: String
+          Mutable: true
+          Required: false
+        - Name: custom:groups
+          AttributeDataType: String
+          Mutable: true
+          Required: false
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: false
+          RequireUppercase: true
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: false
+      EmailConfiguration:
+        EmailSendingAccount: COGNITO_DEFAULT
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Service
+          Value: AgentCore
+        - Key: Component
+          Value: Identity
+  
+  # Cognito User Pool Client
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: !Sub '${ClientName}-${Environment}'
+      UserPoolId: !Ref UserPool
+      GenerateSecret: false
+      ExplicitAuthFlows:
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+        - ALLOW_USER_SRP_AUTH
+      PreventUserExistenceErrors: ENABLED
+      RefreshTokenValidity: 30
+      AccessTokenValidity: 1
+      IdTokenValidity: 1
+      TokenValidityUnits:
+        AccessToken: hours
+        IdToken: hours
+        RefreshToken: days
+  
+  # Cognito User Pool Domain
+  UserPoolDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      Domain: !Sub '${UserPoolName}-${Environment}-${AWS::AccountId}'
+      UserPoolId: !Ref UserPool
+  
+  # Cognito User Pool Group for Admins
+  AdminGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      GroupName: admin
+      Description: Admin group
+      UserPoolId: !Ref UserPool
+      Precedence: 0
+  
+  # Cognito User Pool Group for Users
+  UserGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      GroupName: user
+      Description: User group
+      UserPoolId: !Ref UserPool
+      Precedence: 1
+  
+  # Admin User
+  AdminUser:
+    Type: AWS::Cognito::UserPoolUser
+    Properties:
+      Username: !Ref AdminUsername
+      UserPoolId: !Ref UserPool
+      DesiredDeliveryMediums:
+        - EMAIL
+      ForceAliasCreation: true
+      UserAttributes:
+        - Name: email
+          Value: !Ref AdminEmail
+        - Name: email_verified
+          Value: 'true'
+        - Name: custom:roles
+          Value: 'admin'
+  
+  # Regular User
+  RegularUser:
+    Type: AWS::Cognito::UserPoolUser
+    Properties:
+      Username: !Ref UserUsername
+      UserPoolId: !Ref UserPool
+      DesiredDeliveryMediums:
+        - EMAIL
+      ForceAliasCreation: true
+      UserAttributes:
+        - Name: email
+          Value: !Ref UserEmail
+        - Name: email_verified
+          Value: 'true'
+        - Name: custom:roles
+          Value: 'user'
+  
+  # Add Admin User to Admin Group
+  AdminUserToGroup:
+    Type: AWS::Cognito::UserPoolUserToGroupAttachment
+    Properties:
+      GroupName: !Ref AdminGroup
+      Username: !Ref AdminUsername
+      UserPoolId: !Ref UserPool
+    DependsOn:
+      - AdminUser
+      - AdminGroup
+  
+  # Add Regular User to User Group
+  RegularUserToGroup:
+    Type: AWS::Cognito::UserPoolUserToGroupAttachment
+    Properties:
+      GroupName: !Ref UserGroup
+      Username: !Ref UserUsername
+      UserPoolId: !Ref UserPool
+    DependsOn:
+      - RegularUser
+      - UserGroup
+
+Outputs:
+  UserPoolId:
+    Description: ID of the Cognito User Pool
+    Value: !Ref UserPool
+    Export:
+      Name: !Sub '${AWS::StackName}-UserPoolId'
+      
+  UserPoolClientId:
+    Description: ID of the Cognito User Pool Client
+    Value: !Ref UserPoolClient
+    Export:
+      Name: !Sub '${AWS::StackName}-UserPoolClientId'
+      
+  UserPoolDomain:
+    Description: Domain of the Cognito User Pool
+    Value: !Sub '${UserPoolName}-${Environment}-${AWS::AccountId}.auth.${AWS::Region}.amazoncognito.com'
+    Export:
+      Name: !Sub '${AWS::StackName}-UserPoolDomain'
+      
+  AdminUsername:
+    Description: Username of the admin user
+    Value: !Ref AdminUsername
+    Export:
+      Name: !Sub '${AWS::StackName}-AdminUsername'
+      
+  UserUsername:
+    Description: Username of the regular user
+    Value: !Ref UserUsername
+    Export:
+      Name: !Sub '${AWS::StackName}-UserUsername'

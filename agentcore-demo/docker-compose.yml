@@ -1,0 +1,35 @@
+version: '3'
+
+services:
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+      - AWS_REGION=${AWS_REGION}
+    volumes:
+      - .:/app
+      - /app/node_modules
+    command: npm run start
+    env_file:
+      - .env
+
+  dynamodb-local:
+    image: amazon/dynamodb-local
+    ports:
+      - "8000:8000"
+    command: "-jar DynamoDBLocal.jar -sharedDb -dbPath /home/dynamodblocal/data"
+    volumes:
+      - ./data/dynamodb:/home/dynamodblocal/data
+
+  localstack:
+    image: localstack/localstack
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=lambda,cognito,cloudwatch,logs
+      - DEBUG=1
+      - DATA_DIR=/tmp/localstack/data
+    volumes:
+      - ./data/localstack:/tmp/localstack/data
