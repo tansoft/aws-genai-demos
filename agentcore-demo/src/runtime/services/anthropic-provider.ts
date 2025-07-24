@@ -1,7 +1,7 @@
 /**
  * Anthropic provider implementation for AWS AgentCore
  */
-import Anthropic from 'anthropic';
+import { Anthropic } from '@anthropic-ai/sdk';
 import { CompletionRequest, CompletionResponse, ModelProvider, ModelProviderConfig } from '../models/provider';
 import { AnthropicProtocolAdapter } from './anthropic-protocol';
 import { logger } from '../../common';
